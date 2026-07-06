@@ -1,5 +1,77 @@
 # @x402/extensions Changelog
 
+## 2.17.0
+
+### Minor Changes
+
+- Updated dependencies [266b19d](https://github.com/x402-foundation/x402/commit/266b19d)
+  - @x402/core@2.17.0
+
+## 2.16.0
+
+### Minor Changes
+
+- [59ac597](https://github.com/x402-foundation/x402/commit/59ac597): Added a dynamicInfoFields capability so an extension can mark certain info fields (nonces, timestamps) as regenerated per PaymentRequired response. Those fields are then excluded from the client-echo validatio (extension_echo_mismatch), while all other fields stay strictly compared. Wired into the offer-receipt (["offers"]) and sign-in-with-x (["nonce", "issuedAt", "expirationTime"]) extensions. ([#2653](https://github.com/x402-foundation/x402/pull/2653)) - Thanks [@phdargen](https://github.com/phdargen)!
+- Updated dependencies [59ac597](https://github.com/x402-foundation/x402/commit/59ac597)
+  - @x402/core@2.16.0
+
+## 2.15.0
+
+### Minor Changes
+
+- [ae0bf9b](https://github.com/x402-foundation/x402/commit/ae0bf9b): builder-code: accept and encode multiple service codes (`s`). The client extension now accepts a string or an array of codes, and the facilitator/CBOR layers encode and parse every valid entry, so layered clients (e.g. an MCP middleware) can attribute multiple participants onchain. ([#2606](https://github.com/x402-foundation/x402/pull/2606)) - Thanks [@phdargen](https://github.com/phdargen)!
+- [6acb8fc](https://github.com/x402-foundation/x402/commit/6acb8fc): Implemented builder-code extension ([#2329](https://github.com/x402-foundation/x402/pull/2329)) - Thanks [@0xClouds](https://github.com/0xClouds) and [@pk-coinbase](https://github.com/pk-coinbase), [@phdargen](https://github.com/phdargen)!
+- Updated dependencies [bfa580e](https://github.com/x402-foundation/x402/commit/bfa580e)
+- Updated dependencies [3a60816](https://github.com/x402-foundation/x402/commit/3a60816)
+- Updated dependencies [7539e93](https://github.com/x402-foundation/x402/commit/7539e93)
+  - @x402/core@2.15.0
+
+### Patch Changes
+
+- [7539e93](https://github.com/x402-foundation/x402/commit/7539e93): Fixed client extension echo merging to preserve server-declared extension fields while adding client-provided extension data ([#2561](https://github.com/x402-foundation/x402/pull/2561)) - Thanks [@phdargen](https://github.com/phdargen)!
+
+## 2.14.0
+
+### Minor Changes
+
+- be788e0: Thread Bazaar service metadata from HTTP `RouteConfig` and MCP `PaymentWrapperConfig` into `PaymentRequired.resource`, and extend bazaar facilitator discovery/catalog types so verified payments persist description, MIME type, service metadata, and echoed extension payloads.
+- Updated dependencies [be788e0]
+- Updated dependencies [0af31dd]
+  - @x402/core@2.14.0
+
+## 2.13.0
+
+### Minor Changes
+
+- 49ea054: Use extension hook adapters and auto-register hooks in SIWX extension
+- Updated dependencies [ad08a9a]
+- Updated dependencies [5fca9f3]
+- Updated dependencies [95f2094]
+- Updated dependencies [49ea054]
+  - @x402/core@2.13.0
+
+## 2.12.0
+
+### Minor Changes
+
+- 608034f: Added Bazaar service metadata fields (`serviceName`, `tags`, `iconUrl`) on `ResourceInfo`, plus `isValidServiceName` / `sanitizeTags` / `isValidIconUrl` / `sanitizeResourceServiceMetadata` helpers in `@x402/extensions/bazaar` that `extractDiscoveryInfo` now applies with soft-drop semantics. Fields are optional and additive — providers that omit them produce byte-identical 402 bodies.
+- ee7c156: chore: tighten viem dependency floor to ^2.48.11
+
+  Raises the viem floor in every `@x402/*` package.json that lists viem as a direct dep so future `pnpm install` re-resolutions cannot regress below this version. Fixes the incomplete tightening from #2013.
+
+- Updated dependencies [608034f]
+- Updated dependencies [d235050]
+- Updated dependencies [45d7d19]
+  - @x402/core@2.12.0
+
+## 2.11.0
+
+### Minor Changes
+
+- Updated dependencies [a051f48]
+- Updated dependencies [dc04108]
+  - @x402/core@2.11.0
+
 ## 2.10.0
 
 ### Minor Changes

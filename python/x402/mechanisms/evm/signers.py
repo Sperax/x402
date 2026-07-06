@@ -7,6 +7,7 @@ libraries like eth_account and web3.py.
 from __future__ import annotations
 
 import logging
+import threading
 from typing import Any
 
 logger = logging.getLogger("x402.signers")
@@ -24,6 +25,12 @@ except ImportError as e:
 
 from .constants import EIP1271_MAGIC_VALUE, IS_VALID_SIGNATURE_ABI, TX_STATUS_SUCCESS  # noqa: E402
 from .types import TransactionReceipt, TypedDataDomain, TypedDataField  # noqa: E402
+
+# Gas limit for facilitator-sent transactions (settle transferWithAuthorization and
+# ERC-6492 factory deploys). Must cover larger smart-account deploys: an ERC-7579 /
+# Kernel counterfactual deploy measures ~410k gas, so a 300k limit reverted with
+# out-of-gas. 500k covers known smart-account factories with headroom.
+_DEFAULT_TX_GAS_LIMIT = 500_000
 
 # ERC20 ABI for balance checks
 _ERC20_BALANCE_ABI = [
@@ -282,6 +289,8 @@ class FacilitatorWeb3Signer:
 
         # Cache chain ID
         self._chain_id: int | None = None
+        self._nonce_lock = threading.Lock()
+        self._next_nonce: int | None = None
 
     @property
     def address(self) -> str:
@@ -305,6 +314,19 @@ class FacilitatorWeb3Signer:
         if self._chain_id is None:
             self._chain_id = self._w3.eth.chain_id
         return self._chain_id
+
+    def _reserve_nonce(self) -> int:
+        """Reserve the next pending nonce for this process."""
+        with self._nonce_lock:
+            pending = self._w3.eth.get_transaction_count(
+                self._account.address,
+                "pending",
+            )
+            if self._next_nonce is None or pending > self._next_nonce:
+                self._next_nonce = pending
+            nonce = self._next_nonce
+            self._next_nonce = nonce + 1
+            return nonce
 
     def read_contract(
         self,
@@ -475,8 +497,8 @@ class FacilitatorWeb3Signer:
         tx = func(*args).build_transaction(
             {
                 "from": self._account.address,
-                "nonce": self._w3.eth.get_transaction_count(self._account.address),
-                "gas": 300000,
+                "nonce": self._reserve_nonce(),
+                "gas": _DEFAULT_TX_GAS_LIMIT,
                 "gasPrice": self._w3.eth.gas_price,
             }
         )
@@ -501,8 +523,8 @@ class FacilitatorWeb3Signer:
             "from": self._account.address,
             "to": Web3.to_checksum_address(to),
             "data": data,
-            "nonce": self._w3.eth.get_transaction_count(self._account.address),
-            "gas": 300000,
+            "nonce": self._reserve_nonce(),
+            "gas": _DEFAULT_TX_GAS_LIMIT,
             "gasPrice": self._w3.eth.gas_price,
         }
 

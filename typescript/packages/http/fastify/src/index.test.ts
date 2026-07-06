@@ -39,6 +39,24 @@ let mockProcessSettlement: ReturnType<typeof vi.fn>;
 let mockRegisterPaywallProvider: ReturnType<typeof vi.fn>;
 let mockRequiresPayment: ReturnType<typeof vi.fn>;
 
+type PaymentVerifiedResult = Extract<HTTPProcessResult, { type: "payment-verified" }>;
+type MockHTTPProcessResult =
+  | Exclude<HTTPProcessResult, PaymentVerifiedResult>
+  | (Omit<PaymentVerifiedResult, "cancellationDispatcher"> & {
+      cancellationDispatcher?: PaymentVerifiedResult["cancellationDispatcher"];
+    });
+
+/**
+ * Creates a mock payment cancellation dispatcher.
+ *
+ * @returns Mock payment cancellation dispatcher.
+ */
+function createMockPaymentCancellationDispatcher(): PaymentVerifiedResult["cancellationDispatcher"] {
+  return {
+    cancel: vi.fn().mockResolvedValue(undefined),
+  } as unknown as PaymentVerifiedResult["cancellationDispatcher"];
+}
+
 vi.mock("@x402/core/server", () => ({
   SETTLEMENT_OVERRIDES_HEADER: "Settlement-Overrides",
   FacilitatorResponseError: class FacilitatorResponseError extends Error {
@@ -80,6 +98,7 @@ vi.mock("@x402/core/server", () => ({
       registerExtension: vi.fn(),
     },
   })),
+  checkIfBazaarNeeded: vi.fn().mockReturnValue(false),
 }));
 
 // --- Hook Capture ---
@@ -91,6 +110,7 @@ type HookHandler = (...args: unknown[]) => Promise<unknown>;
 interface CapturedHooks {
   onRequest: HookHandler[];
   onSend: HookHandler[];
+  onError: HookHandler[];
 }
 
 /**
@@ -99,12 +119,13 @@ interface CapturedHooks {
  * @returns Object containing the mock app and captured hooks.
  */
 function createMockApp(): { app: FastifyInstance; hooks: CapturedHooks } {
-  const hooks: CapturedHooks = { onRequest: [], onSend: [] };
+  const hooks: CapturedHooks = { onRequest: [], onSend: [], onError: [] };
 
   const app = {
     addHook: vi.fn((name: string, handler: HookHandler) => {
       if (name === "onRequest") hooks.onRequest.push(handler);
       if (name === "onSend") hooks.onSend.push(handler);
+      if (name === "onError") hooks.onError.push(handler);
     }),
     decorateRequest: vi.fn(),
   } as unknown as FastifyInstance;
@@ -119,7 +140,7 @@ function createMockApp(): { app: FastifyInstance; hooks: CapturedHooks } {
  * @param settlementResult - Result to return from processSettlement.
  */
 function setupMockHttpServer(
-  processResult: HTTPProcessResult,
+  processResult: MockHTTPProcessResult,
   settlementResult:
     | { success: true; headers: Record<string, string> }
     | {
@@ -137,7 +158,15 @@ function setupMockHttpServer(
     headers: {},
   },
 ): void {
-  mockProcessHTTPRequest.mockResolvedValue(processResult);
+  const normalizedResult =
+    processResult.type === "payment-verified"
+      ? {
+          ...processResult,
+          cancellationDispatcher:
+            processResult.cancellationDispatcher ?? createMockPaymentCancellationDispatcher(),
+        }
+      : processResult;
+  mockProcessHTTPRequest.mockResolvedValue(normalizedResult);
   mockProcessSettlement.mockResolvedValue(settlementResult);
 }
 
@@ -220,7 +249,12 @@ function createMockReply(): FastifyReply & {
     }),
   };
 
-  return reply as unknown as typeof reply;
+  return reply as unknown as FastifyReply & {
+    _status: number;
+    _headers: Record<string, string>;
+    _body: unknown;
+    _type: string | undefined;
+  };
 }
 
 // --- Tests ---
@@ -438,6 +472,37 @@ describe("paymentMiddleware", () => {
     expect(result).toBe(payload);
   });
 
+  it("strips settlement override header from client response", async () => {
+    setupMockHttpServer(
+      {
+        type: "payment-verified",
+        paymentPayload: mockPaymentPayload,
+        paymentRequirements: mockPaymentRequirements,
+      },
+      { success: true, headers: { "PAYMENT-RESPONSE": "settled" } },
+    );
+
+    const { app, hooks } = createMockApp();
+    paymentMiddleware(
+      app,
+      mockRoutes,
+      {} as unknown as x402ResourceServer,
+      undefined,
+      undefined,
+      false,
+    );
+
+    const request = createMockRequest();
+    const reply = createMockReply();
+    reply._headers["Settlement-Overrides"] = JSON.stringify({ amount: "32%" });
+
+    await hooks.onRequest[0](request, reply);
+    await hooks.onSend[0](request, reply, JSON.stringify({ data: "premium content" }));
+
+    expect(reply.removeHeader).toHaveBeenCalledWith("Settlement-Overrides");
+    expect(reply._headers["Settlement-Overrides"]).toBeUndefined();
+  });
+
   it("passes Buffer payload bytes to settlement without JSON stringifying them", async () => {
     setupMockHttpServer(
       {
@@ -519,10 +584,19 @@ describe("paymentMiddleware", () => {
     await hooks.onRequest[0](request, reply);
 
     reply.statusCode = 500;
+    reply._headers["Settlement-Overrides"] = JSON.stringify({ amount: "32%" });
     const payload = JSON.stringify({ error: "Server error" });
     const result = await hooks.onSend[0](request, reply, payload);
 
     expect(mockProcessSettlement).not.toHaveBeenCalled();
+    expect(reply.removeHeader).toHaveBeenCalledWith("Settlement-Overrides");
+    expect(reply._headers["Settlement-Overrides"]).toBeUndefined();
+    expect(request.x402Context?.cancellationDispatcher.cancel).toHaveBeenCalledWith(
+      expect.objectContaining({
+        reason: "handler_failed",
+        responseStatus: 500,
+      }),
+    );
     expect(result).toBe(payload);
   });
 
@@ -564,9 +638,12 @@ describe("paymentMiddleware", () => {
     await hooks.onRequest[0](request, reply);
 
     reply.type("application/octet-stream");
+    reply._headers["Settlement-Overrides"] = JSON.stringify({ amount: "32%" });
     const payload = JSON.stringify({ data: "premium content" });
     const result = await hooks.onSend[0](request, reply, payload);
 
+    expect(reply.removeHeader).toHaveBeenCalledWith("Settlement-Overrides");
+    expect(reply._headers["Settlement-Overrides"]).toBeUndefined();
     expect(reply.status).toHaveBeenCalledWith(402);
     expect(reply.header).toHaveBeenCalledWith("PAYMENT-RESPONSE", "failed");
     expect(reply.type).toHaveBeenCalledWith("application/json");
@@ -596,9 +673,11 @@ describe("paymentMiddleware", () => {
 
     await hooks.onRequest[0](request, reply);
 
+    reply._headers["Settlement-Overrides"] = JSON.stringify({ amount: "32%" });
     const payload = JSON.stringify({ data: "premium content" });
     const result = await hooks.onSend[0](request, reply, payload);
 
+    expect(reply.removeHeader).toHaveBeenCalledWith("Settlement-Overrides");
     expect(reply.status).toHaveBeenCalledWith(402);
     expect(reply.type).toHaveBeenCalledWith("application/json");
     expect(result).toBe(JSON.stringify({}));

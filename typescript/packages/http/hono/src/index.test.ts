@@ -40,6 +40,24 @@ let mockProcessSettlement: ReturnType<typeof vi.fn>;
 let mockRegisterPaywallProvider: ReturnType<typeof vi.fn>;
 let mockRequiresPayment: ReturnType<typeof vi.fn>;
 
+type PaymentVerifiedResult = Extract<HTTPProcessResult, { type: "payment-verified" }>;
+type MockHTTPProcessResult =
+  | Exclude<HTTPProcessResult, PaymentVerifiedResult>
+  | (Omit<PaymentVerifiedResult, "cancellationDispatcher"> & {
+      cancellationDispatcher?: PaymentVerifiedResult["cancellationDispatcher"];
+    });
+
+/**
+ * Creates a mock payment cancellation dispatcher.
+ *
+ * @returns Mock payment cancellation dispatcher.
+ */
+function createMockPaymentCancellationDispatcher(): PaymentVerifiedResult["cancellationDispatcher"] {
+  return {
+    cancel: vi.fn().mockResolvedValue(undefined),
+  } as unknown as PaymentVerifiedResult["cancellationDispatcher"];
+}
+
 vi.mock("@x402/core/server", () => ({
   SETTLEMENT_OVERRIDES_HEADER: "Settlement-Overrides",
   FacilitatorResponseError: class FacilitatorResponseError extends Error {
@@ -81,6 +99,7 @@ vi.mock("@x402/core/server", () => ({
       registerExtension: vi.fn(),
     },
   })),
+  checkIfBazaarNeeded: vi.fn().mockReturnValue(false),
 }));
 
 // --- Mock Factories ---
@@ -91,7 +110,7 @@ vi.mock("@x402/core/server", () => ({
  * @param settlementResult - Result to return from processSettlement.
  */
 function setupMockHttpServer(
-  processResult: HTTPProcessResult,
+  processResult: MockHTTPProcessResult,
   settlementResult:
     | { success: true; headers: Record<string, string> }
     | {
@@ -104,7 +123,15 @@ function setupMockHttpServer(
     headers: {},
   },
 ): void {
-  mockProcessHTTPRequest.mockResolvedValue(processResult);
+  const normalizedResult =
+    processResult.type === "payment-verified"
+      ? {
+          ...processResult,
+          cancellationDispatcher:
+            processResult.cancellationDispatcher ?? createMockPaymentCancellationDispatcher(),
+        }
+      : processResult;
+  mockProcessHTTPRequest.mockResolvedValue(normalizedResult);
   mockProcessSettlement.mockResolvedValue(settlementResult);
 }
 
@@ -357,6 +384,45 @@ describe("paymentMiddleware", () => {
     expect(responseHeaders.get("PAYMENT-RESPONSE")).toBe("settled");
   });
 
+  it("strips settlement override header from client response", async () => {
+    setupMockHttpServer(
+      {
+        type: "payment-verified",
+        paymentPayload: mockPaymentPayload,
+        paymentRequirements: mockPaymentRequirements,
+      },
+      { success: true, headers: { "PAYMENT-RESPONSE": "settled" } },
+    );
+
+    const middleware = paymentMiddleware(
+      mockRoutes,
+      {} as unknown as x402ResourceServer,
+      undefined,
+      undefined,
+      false,
+    );
+    const context = createMockContext();
+
+    const responseHeaders = new Headers();
+    responseHeaders.set("Settlement-Overrides", JSON.stringify({ amount: "32%" }));
+    const mockResponse = {
+      status: 200,
+      headers: responseHeaders,
+      clone: () => ({
+        arrayBuffer: async () => new ArrayBuffer(0),
+      }),
+    } as unknown as Response;
+
+    const next = vi.fn().mockImplementation(async () => {
+      context.res = mockResponse;
+    });
+
+    await middleware(context, next);
+
+    expect(responseHeaders.has("Settlement-Overrides")).toBe(false);
+    expect(responseHeaders.get("PAYMENT-RESPONSE")).toBe("settled");
+  });
+
   it("skips settlement when handler returns >= 400", async () => {
     setupMockHttpServer(
       {
@@ -376,14 +442,17 @@ describe("paymentMiddleware", () => {
     );
     const context = createMockContext();
 
+    const responseHeaders = new Headers();
+    responseHeaders.set("Settlement-Overrides", JSON.stringify({ amount: "32%" }));
     const next = vi.fn().mockImplementation(async () => {
-      context.res = new Response("Error", { status: 500 });
+      context.res = new Response("Error", { status: 500, headers: responseHeaders });
     });
 
     await middleware(context, next);
 
     expect(next).toHaveBeenCalled();
     expect(mockProcessSettlement).not.toHaveBeenCalled();
+    expect(context.res?.headers.has("Settlement-Overrides")).toBe(false);
   });
 
   it("returns 402 when settlement throws error", async () => {

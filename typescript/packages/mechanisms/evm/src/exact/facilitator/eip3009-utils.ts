@@ -12,6 +12,15 @@ export interface Eip6492Deployment {
 }
 
 /**
+ * Outcome of a transfer simulation. `error` is populated only when the underlying `eth_call`
+ * threw (revert or transport), letting callers distinguish a contract revert from an RPC failure.
+ */
+export interface SimulateEip3009Result {
+  ok: boolean;
+  error?: unknown;
+}
+
+/**
  * Simulates transferWithAuthorization via eth_call.
  * Returns true if simulation succeeded, false if it failed.
  *
@@ -28,6 +37,25 @@ export async function simulateEip3009Transfer(
   payload: ExactEIP3009Payload,
   eip6492Deployment?: Eip6492Deployment,
 ): Promise<boolean> {
+  return (await simulateEip3009TransferResult(signer, erc20Address, payload, eip6492Deployment)).ok;
+}
+
+/**
+ * Like {@link simulateEip3009Transfer} but returns the thrown error (if any) alongside the
+ * boolean outcome, so callers can tell a contract revert apart from a transport/RPC failure.
+ *
+ * @param signer - EVM signer for contract reads
+ * @param erc20Address - ERC-20 token contract address
+ * @param payload - EIP-3009 transfer authorization payload
+ * @param eip6492Deployment - Optional EIP-6492 factory info for undeployed smart wallets
+ * @returns The simulation outcome and, on failure via a thrown error, that error.
+ */
+export async function simulateEip3009TransferResult(
+  signer: FacilitatorEvmSigner,
+  erc20Address: `0x${string}`,
+  payload: ExactEIP3009Payload,
+  eip6492Deployment?: Eip6492Deployment,
+): Promise<SimulateEip3009Result> {
   const auth = payload.authorization;
   const transferArgs = [
     getAddress(auth.from),
@@ -58,9 +86,9 @@ export async function simulateEip3009Transfer(
         } satisfies RawContractCall,
       ]);
 
-      return results[1]?.status === "success";
-    } catch {
-      return false;
+      return { ok: results[1]?.status === "success" };
+    } catch (error) {
+      return { ok: false, error };
     }
   }
 
@@ -90,9 +118,9 @@ export async function simulateEip3009Transfer(
         args: [...transferArgs, sig],
       });
     }
-    return true;
-  } catch {
-    return false;
+    return { ok: true };
+  } catch (error) {
+    return { ok: false, error };
   }
 }
 
@@ -189,11 +217,39 @@ export async function diagnoseEip3009SimulationFailure(
 }
 
 /**
+ * Maps an EIP-3009 contract revert error to a specific error code.
+ * Falls back to ErrTransactionFailed when the revert reason is unknown.
+ *
+ * @param error - The error thrown during transfer execution
+ * @returns A specific error reason string
+ */
+export function parseEip3009TransferError(error: unknown): string {
+  const msg = error instanceof Error ? error.message : String(error);
+  if (/authorization.*(expired|valid before)/i.test(msg) || /AuthorizationExpired/i.test(msg)) {
+    return Errors.ErrValidBeforeExpired;
+  }
+  if (/authorization.*not.*valid|AuthorizationNotYetValid/i.test(msg)) {
+    return Errors.ErrValidAfterInFuture;
+  }
+  if (/authorization.*used|AuthorizationAlreadyUsed|AuthorizationUsedOrCanceled/i.test(msg)) {
+    return Errors.ErrEip3009NonceAlreadyUsed;
+  }
+  if (/transfer.*exceeds.*balance|insufficient.*balance|ERC20InsufficientBalance/i.test(msg)) {
+    return Errors.ErrEip3009InsufficientBalance;
+  }
+  if (/invalid.*signature|SignerMismatch|InvalidSignatureV|InvalidSignatureS/i.test(msg)) {
+    return Errors.ErrInvalidSignature;
+  }
+  return Errors.ErrTransactionFailed;
+}
+
+/**
  * Executes transferWithAuthorization onchain.
  *
  * @param signer - EVM signer for contract writes
  * @param erc20Address - ERC-20 token contract address
  * @param payload - EIP-3009 transfer authorization payload
+ * @param dataSuffix - Optional hex bytes to append after the ABI-encoded calldata
  *
  * @returns Transaction hash
  */
@@ -201,6 +257,7 @@ export async function executeTransferWithAuthorization(
   signer: FacilitatorEvmSigner,
   erc20Address: `0x${string}`,
   payload: ExactEIP3009Payload,
+  dataSuffix?: Hex,
 ): Promise<Hex> {
   const { signature } = parseErc6492Signature(payload.signature!);
   const signatureLength = signature.startsWith("0x") ? signature.length - 2 : signature.length;
@@ -216,25 +273,23 @@ export async function executeTransferWithAuthorization(
     auth.nonce,
   ] as const;
 
+  let signatureArgs: readonly unknown[];
   if (isECDSA) {
     const parsedSig = parseSignature(signature);
-    return signer.writeContract({
-      address: erc20Address,
-      abi: eip3009ABI,
-      functionName: "transferWithAuthorization",
-      args: [
-        ...baseArgs,
-        (parsedSig.v as number | undefined) || parsedSig.yParity,
-        parsedSig.r,
-        parsedSig.s,
-      ],
-    });
+    signatureArgs = [
+      (parsedSig.v as number | undefined) || parsedSig.yParity,
+      parsedSig.r,
+      parsedSig.s,
+    ];
+  } else {
+    signatureArgs = [signature];
   }
 
   return signer.writeContract({
     address: erc20Address,
     abi: eip3009ABI,
     functionName: "transferWithAuthorization",
-    args: [...baseArgs, signature],
+    args: [...baseArgs, ...signatureArgs],
+    dataSuffix,
   });
 }

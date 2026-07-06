@@ -9,7 +9,7 @@ The Offer & Receipt extension adds cryptographic proof-of-interaction to x402 pa
 
 Signed offers and receipts are portable, verifiable artifacts that any third party can check. They enable:
 
-* **Reputation systems** — Clients can attach receipts to on-chain attestations as proof they actually paid for and received a service. This is the "Verified Purchase" equivalent for the open web.
+* **Reputation systems** — Clients can attach receipts to onchain attestations as proof they actually paid for and received a service. This is the "Verified Purchase" equivalent for the open web.
 * **Dispute resolution** — Offers prove the server committed to specific terms; receipts prove delivery. If either party disputes a transaction, the signed artifacts provide evidence.
 * **Auditing** — Receipts create a verifiable trail of service delivery without exposing transaction details (the transaction hash is optional).
 * **Client confidence** — Services with verifiable proof-of-interaction build stronger trust signals, making new clients more likely to use the service.
@@ -59,7 +59,7 @@ EVM_ADDRESS=0xYourPaymentWalletAddress
 SIGNING_PRIVATE_KEY=0xYourDedicatedSigningPrivateKey
 
 # x402 facilitator URL
-FACILITATOR_URL=https://facilitator.x402.org
+FACILITATOR_URL=https://x402.org/facilitator
 ```
 
 ### Server Setup (EIP-712)
@@ -155,7 +155,7 @@ JWS supports a wider range of key types than EIP-712 (secp256k1 only), including
 
 ```bash
 EVM_ADDRESS=0xYourPaymentWalletAddress
-FACILITATOR_URL=https://facilitator.x402.org
+FACILITATOR_URL=https://x402.org/facilitator
 
 # Base64-encoded PKCS#8 private key (EC P-256)
 # For production deployments, do not store private keys in an environment variable
@@ -331,7 +331,7 @@ This is a W3C standard mechanism and is sufficient for many use cases. However, 
 
 ### Additional Binding Mechanisms
 
-For production services that need stronger guarantees — immutable on-chain attestations, DNS-based verification, temporal anchoring, or key lifecycle management (expiration, rotation, revocation) — ecosystem partners offer additional trust layers on top of `did.json`. See the [Infrastructure & Tooling category](https://www.x402.org/ecosystem?filter=ecosystem-infrastructure) on the ecosystem page for reputation and identity services that integrate with the offer-receipt extension.
+For production services that need stronger guarantees — immutable onchain attestations, DNS-based verification, temporal anchoring, or key lifecycle management (expiration, rotation, revocation) — third parties offer additional trust layers on top of `did.json`.
 
 ## Client-Side: Extracting Offers and Receipts
 
@@ -406,8 +406,6 @@ Signed offers and receipts are portable, verifiable artifacts. Clients can:
 - **Store them for auditing** — receipts create a verifiable trail of service delivery
 - **Use them in dispute resolution** — offers prove the server committed to terms; receipts prove delivery
 - **Share them with aggregators** — trust scoring engines can verify the signatures independently
-
-Ecosystem partners (see the [Infrastructure & Tooling category](https://www.x402.org/ecosystem?filter=ecosystem-infrastructure) on the ecosystem page) build on these artifacts to provide reputation systems, trust scoring, and other value-added services.
 
 ## Working Examples
 

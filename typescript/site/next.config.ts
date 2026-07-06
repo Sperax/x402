@@ -6,6 +6,9 @@ const nextConfig: NextConfig = {
   serverExternalPackages: [
     "@aptos-labs/ts-sdk",
     "@aptos-labs/aptos-client",
+    "@hiero-ledger/sdk",
+    "@keetanetwork/keetanet-client",
+    "@keetanetwork/anchor",
     "got",
     "keyv",
     "cacheable-request",
@@ -24,6 +27,20 @@ const nextConfig: NextConfig = {
           },
         ],
       },
+      {
+        source: "/",
+        headers: [
+          {
+            key: "Link",
+            value:
+              '</.well-known/api-catalog>; rel="api-catalog", </writing>; rel="service-doc", </protected>; rel="payment-required"',
+          },
+          {
+            key: "X-X402-Supported",
+            value: "true",
+          },
+        ],
+      },
     ];
   },
   async rewrites() {
@@ -31,6 +48,10 @@ const nextConfig: NextConfig = {
       {
         source: "/build",
         destination: "/build-with-us",
+      },
+      {
+        source: "/.well-known/api-catalog",
+        destination: "/api/well-known/api-catalog",
       },
     ];
   },

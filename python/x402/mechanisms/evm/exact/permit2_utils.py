@@ -25,6 +25,7 @@ from ....schemas import (  # noqa: E402
 from ..constants import (  # noqa: E402
     BALANCE_OF_ABI,
     ERC20_ALLOWANCE_ABI,
+    ERR_ASSET_NOT_DEPLOYED_CONTRACT,
     ERR_INSUFFICIENT_BALANCE,
     ERR_NETWORK_MISMATCH,
     ERR_PERMIT2_ALLOWANCE_REQUIRED,
@@ -45,6 +46,7 @@ from ..constants import (  # noqa: E402
     X402_EXACT_PERMIT2_PROXY_ADDRESS,
     X402_EXACT_PERMIT2_PROXY_SETTLE_WITH_PERMIT_ABI,
 )
+from ..erc6492 import parse_erc6492_signature  # noqa: E402
 from ..signer import ClientEvmSigner, FacilitatorEvmSigner  # noqa: E402
 from ..types import (  # noqa: E402
     ExactPermit2Authorization,
@@ -59,6 +61,7 @@ from ..utils import (  # noqa: E402
     hex_to_bytes,
     normalize_address,
 )
+from ..verify import verify_typed_data_strict  # noqa: E402
 
 
 def create_permit2_payload(
@@ -80,8 +83,7 @@ def create_permit2_payload(
     now = int(time.time())
     nonce = create_permit2_nonce()
 
-    # Lower time bound - allow clock skew
-    valid_after = str(now - 600)
+    valid_after = "0"
     # Upper time bound - permit2 deadline
     deadline = str(now + (requirements.max_timeout_seconds or 3600))
 
@@ -186,6 +188,12 @@ def verify_permit2(
 
     chain_id = get_evm_chain_id(str(requirements.network))
     token_address = normalize_address(requirements.asset)
+
+    code = signer.get_code(token_address)
+    if len(code) == 0:
+        return VerifyResponse(
+            is_valid=False, invalid_reason=ERR_ASSET_NOT_DEPLOYED_CONTRACT, payer=payer
+        )
 
     # 3. Spender check
     try:
@@ -458,7 +466,9 @@ def _build_permit2_settle_args(
 
     Returns (permit_tuple, owner_addr, witness_tuple, sig_bytes).
     """
-    sig_bytes = hex_to_bytes(permit2_payload.signature or "")
+    sig_bytes = parse_erc6492_signature(
+        hex_to_bytes(permit2_payload.signature or "")
+    ).inner_signature
     permit_tuple = (
         (
             to_checksum_address(permit2_payload.permit2_authorization.permitted.token),
@@ -730,7 +740,9 @@ def _verify_permit2_signature(
         permit2_authorization, chain_id
     )
 
-    return signer.verify_typed_data(
+    # Uses the strict primitive that mirrors on-chain SignatureChecker (code-routed, no ECDSA fallback).
+    return verify_typed_data_strict(
+        signer,
         payer,
         domain_dict,  # type: ignore[arg-type]
         typed_fields,

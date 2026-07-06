@@ -1,5 +1,100 @@
 # @x402/evm Changelog
 
+## 2.17.0
+
+### Minor Changes
+
+- [266b19d](https://github.com/x402-foundation/x402/commit/266b19d): Declares `receiverAuthorizer` in facilitator supported as optional. If a facilitator opts in to provide `receiverAuthorizer`, servers may delegate to it. Otherwise, they must provide their own. ([#2700](https://github.com/x402-foundation/x402/pull/2700)) - Thanks [@phdargen](https://github.com/phdargen)!
+- Made the batch-settlement facilitator `authorizerSigner` optional. A facilitator that omits it no longer advertises a `receiverAuthorizer` in `/supported` and requires servers to supply their own claim/refund authorizer signatures, returning `invalid_batch_settlement_evm_authorizer_not_configured` when one is missing. The batch-settlement server scheme now also implements `validateFacilitatorSupport`, so a server configured without a `receiverAuthorizerSigner` (intending to delegate) fails fast during `initialize()` when the facilitator does not advertise a usable `receiverAuthorizer`, instead of only failing lazily on the first request.
+- [4cba262](https://github.com/x402-foundation/x402/commit/4cba262): Expanded wallet compatibility so payments verify and settle consistently across plain EOAs, deployed smart accounts (ERC-4337 / ERC-7579), counterfactual ERC-6492 wallets, and ERC-7702-delegated EOAs. Pre-verification now mirrors on-chain signature checking, so a payment that passes `verify` is the same one that succeeds at `settle`. Added counterfactual ERC-6492 support to the `exact` and `batch-settlement` flows — the wallet is deployed and its signature validated together during `verify` — gated by a new `eip6492AllowedFactories` allowlist you set on the facilitator scheme config. Also added a wallet-compatibility guide documenting which wallet and scheme combinations are supported. ([#2658](https://github.com/x402-foundation/x402/pull/2658)) - Thanks [@CarsonRoscoe](https://github.com/CarsonRoscoe) and [@cursoragent](https://github.com/cursoragent)!
+- Updated dependencies [266b19d](https://github.com/x402-foundation/x402/commit/266b19d)
+  - @x402/core@2.17.0
+
+## 2.16.0
+
+### Minor Changes
+
+- Updated dependencies [59ac597](https://github.com/x402-foundation/x402/commit/59ac597)
+  - @x402/core@2.16.0
+
+## 2.15.0
+
+### Minor Changes
+
+- [238fac4](https://github.com/x402-foundation/x402/commit/238fac4): Add Mezo mainnet (chain ID 31612) support with mUSD as the default stablecoin ([#2590](https://github.com/x402-foundation/x402/pull/2590)) - Thanks [@ryanRfox](https://github.com/ryanRfox)!
+- [5304005](https://github.com/x402-foundation/x402/commit/5304005): Add XDC Network mainnet (chain ID 50) and Apothem testnet (chain ID 51) support with USDC as the default stablecoin ([#2597](https://github.com/x402-foundation/x402/pull/2597)) - Thanks [@AnilChinchawale](https://github.com/AnilChinchawale)!
+- [6acb8fc](https://github.com/x402-foundation/x402/commit/6acb8fc): Added calldataSuffix support for builder-code extension ([#2329](https://github.com/x402-foundation/x402/pull/2329)) - Thanks [@0xClouds](https://github.com/0xClouds) and [@pk-coinbase](https://github.com/pk-coinbase), [@phdargen](https://github.com/phdargen)!
+- Updated dependencies [bfa580e](https://github.com/x402-foundation/x402/commit/bfa580e)
+- Updated dependencies [3a60816](https://github.com/x402-foundation/x402/commit/3a60816)
+- Updated dependencies [7539e93](https://github.com/x402-foundation/x402/commit/7539e93)
+  - @x402/core@2.15.0
+
+### Patch Changes
+
+- [c4420b7](https://github.com/x402-foundation/x402/commit/c4420b7): Fixed a bug where EVM facilitator verify accepted payments whose asset address was an EOA. Calling any function on an EOA via `eth_call` silently returns empty data without reverting, causing on-chain simulation to pass and the subsequent settlement to land as a no-op with no `Transfer` event emitted. The fix checks `eth_getCode` on the asset address early in `verifyEIP3009`, `verifyPermit2`, and `verifyUptoPermit2`; any address with no bytecode is rejected with `asset_not_deployed_contract`. ([#2554](https://github.com/x402-foundation/x402/pull/2554)) - Thanks [@CarsonRoscoe](https://github.com/CarsonRoscoe)!
+- [f4c532e](https://github.com/x402-foundation/x402/commit/f4c532e): Set EVM authorization `validAfter` to 0 to reduce onchain timing failures when payloads are queued or block timestamps lag behind client clocks ([#2601](https://github.com/x402-foundation/x402/pull/2601)) - Thanks [@phdargen](https://github.com/phdargen)!
+
+## 2.14.0
+
+### Minor Changes
+
+- 10e59e1: Add auth-capture client scheme for detecting and signing payment payloads
+- 51f889b: **[Breaking for facilitator implementers using ERC-4337 smart wallet deployment]** Fixed ERC-6492 factory call injection vulnerability in EVM exact settlement (v1 and v2) and simplified the configuration API. The `deployERC4337WithEIP6492` boolean has been removed; `eip6492AllowedFactories?: string[]` is now the sole gate for enabling smart wallet deployment. Settlement deploys an undeployed smart wallet if and only if its factory address is present in `eip6492AllowedFactories` (case-insensitive). An empty or omitted list disables the feature entirely and rejects factory deployment calls with `eip6492_factory_not_allowed`. Facilitators previously using `deployERC4337WithEIP6492: true` must remove that field and populate `eip6492AllowedFactories` with every factory address they trust.
+- d4bdfa7: Clarify exact EVM channel asset semantics and align voucher asset selection with the transfer method.
+- Updated dependencies [be788e0]
+- Updated dependencies [0af31dd]
+  - @x402/core@2.14.0
+
+## 2.13.0
+
+### Minor Changes
+
+- 114b6b1: Add HPP mainnet (chain ID 190415) and HPP Sepolia (chain ID 181228) support with USDC.e (Bridged USDC) as the default stablecoin
+- 581e55e: Add ADI Chain (chain ID 36900) support with USDC.e as the default stablecoin
+- 3ba5d2e: add optional batch-settlement client/file-storage and server/file-storage (and server/redis-storage) exports to avoid pulling Node-fs/Redis helpers into default bundles
+- a242149: unwrap ERC-6492 signatures for exact/upto permit2 flows and batch-settlement
+- abbd40e: Added checks for 0 amount to settle/refund for batch-settlement
+- Updated dependencies [ad08a9a]
+- Updated dependencies [5fca9f3]
+- Updated dependencies [95f2094]
+- Updated dependencies [49ea054]
+  - @x402/core@2.13.0
+
+## 2.12.0
+
+### Minor Changes
+
+- 45d7d19: Implemented batch-settlement mechanism
+- e7150b3: Add Radius Network (chain ID 723487) and Radius Testnet (chain ID 72344) support with SBC as the default stablecoin
+- ee7c156: chore: tighten viem dependency floor to ^2.48.11
+
+  Raises the viem floor in every `@x402/*` package.json that lists viem as a direct dep so future `pnpm install` re-resolutions cannot regress below this version. Fixes the incomplete tightening from #2013.
+
+- Updated dependencies [608034f]
+- Updated dependencies [d235050]
+- Updated dependencies [45d7d19]
+  - @x402/core@2.12.0
+
+## 2.11.0
+
+### Minor Changes
+
+- 032295b: fix(paywall): use dynamic token decimals instead of hardcoding 6
+
+  The EVM paywall no longer assumes all tokens have 6 decimal places. Server-side amount conversion in `evmPaywall.generateHtml`:
+
+  - Resolves the token's decimal precision via a new `getDefaultTokenDecimals` helper that looks up the network in `@x402/evm`'s `DEFAULT_STABLECOINS` registry — the same source the scheme `getAssetDecimals` methods read from and the inline scheme dispatch in `@x402/core`'s `x402ResourceServer` uses. Falls back to 6 (USDC default) when the network is unknown.
+  - Replaces the lossy `parseFloat(amount) / 10**decimals` math with `Number(formatUnits(BigInt(amount), decimals))`, preserving precision through the atomic-to-display conversion.
+
+  `@x402/evm` now publicly re-exports `DEFAULT_STABLECOINS` from `./shared/defaultAssets` so consumers can read the canonical default-asset registry directly.
+
+### Patch Changes
+
+- dc04108: Fixed a bug affecting USD prices with 7+ decimal places of precision (e.g. `$0.0000001` or smaller).
+- Updated dependencies [a051f48]
+- Updated dependencies [dc04108]
+  - @x402/core@2.11.0
+
 ## 2.10.0
 
 ### Minor Changes

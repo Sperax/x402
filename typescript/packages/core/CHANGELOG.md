@@ -1,5 +1,62 @@
 # @x402/core Changelog
 
+## 2.17.0
+
+### Minor Changes
+
+- [266b19d](https://github.com/x402-foundation/x402/commit/266b19d): Added an optional `validateFacilitatorSupport` hook to `SchemeNetworkServer` and wired it into `x402ResourceServer.initialize()`. After supported kinds are loaded, each registered scheme that the facilitator actually supports is asked to validate the advertised capabilities against its own configuration; any reported problems are aggregated and thrown so misconfigurations fail fast at server startup, not just on the first protected request. ([#2700](https://github.com/x402-foundation/x402/pull/2700)) - Thanks [@phdargen](https://github.com/phdargen)!
+
+## 2.16.0
+
+### Minor Changes
+
+- [59ac597](https://github.com/x402-foundation/x402/commit/59ac597): Added a dynamicInfoFields capability so an extension can mark certain info fields (nonces, timestamps) as regenerated per PaymentRequired response. Those fields are then excluded from the client-echo validatio (extension_echo_mismatch), while all other fields stay strictly compared. Wired into the offer-receipt (["offers"]) and sign-in-with-x (["nonce", "issuedAt", "expirationTime"]) extensions. ([#2653](https://github.com/x402-foundation/x402/pull/2653)) - Thanks [@phdargen](https://github.com/phdargen)!
+
+## 2.15.0
+
+### Minor Changes
+
+- [bfa580e](https://github.com/x402-foundation/x402/commit/bfa580e): Add transport-agnostic `parsePaymentResult` and simplify the parsed result to `HTTPResourceResponse` (`{ status, body, header }`), where `header` is the decoded `SettleResponse` (from `PAYMENT-RESPONSE`) or `PaymentRequired` (from `PAYMENT-REQUIRED`, whose `error` carries the server's failure reason). This lets clients surface server-delivered payment errors without branching. ([#2558](https://github.com/x402-foundation/x402/pull/2558)) - Thanks [@phdargen](https://github.com/phdargen)!
+
+### Patch Changes
+
+- [3a60816](https://github.com/x402-foundation/x402/commit/3a60816): Harden wildcard route and network pattern matching. ([#2541](https://github.com/x402-foundation/x402/pull/2541)) - Thanks [@skyc1e](https://github.com/skyc1e)!
+- [7539e93](https://github.com/x402-foundation/x402/commit/7539e93): Fixed client extension echo merging to preserve server-declared extension fields while adding client-provided extension data ([#2561](https://github.com/x402-foundation/x402/pull/2561)) - Thanks [@phdargen](https://github.com/phdargen)!
+
+## 2.14.0
+
+### Minor Changes
+
+- be788e0: Thread Bazaar service metadata from HTTP `RouteConfig` and MCP `PaymentWrapperConfig` into `PaymentRequired.resource`, and extend bazaar facilitator discovery/catalog types so verified payments persist description, MIME type, service metadata, and echoed extension payloads.
+- 0af31dd: Added startup-time JSON-schema validation for bazaar discovery extensions in middleware packages; Removed shallow bazaar validation from core in favor of full schema validation using the extensions package validator
+
+## 2.13.0
+
+### Minor Changes
+
+- 49ea054: Add extension hook adapters for client and HTTP flows
+- ad08a9a: Preserve %2F/%5C in normalizePath so encoded path separators can no longer hide segment boundaries from :param route regexes, closing a paywall bypass on requests like /api/report/a%2Fb.
+- 5fca9f3: Allow paymentPayload.accepted.extra to include additive client fields, while all server-declared fields still have to match
+- 95f2094: Replace the dynamic fallback paywall HTML (used when @x402/paywall is not installed) with a static template, eliminating reflected XSS surface from interpolated request URLs and config values.
+
+## 2.12.0
+
+### Minor Changes
+
+- 608034f: Added Bazaar service metadata fields (`serviceName`, `tags`, `iconUrl`) on `ResourceInfo`, plus `isValidServiceName` / `sanitizeTags` / `isValidIconUrl` / `sanitizeResourceServiceMetadata` helpers in `@x402/extensions/bazaar` that `extractDiscoveryInfo` now applies with soft-drop semantics. Fields are optional and additive — providers that omit them produce byte-identical 402 bodies.
+- 45d7d19: - Extended scheme surface with optional schemeHooks
+  - Added skip primitives to verify/route/settle for custom flows
+  - Added VerifyResponse / SettleResponse extra
+  - Added onPaymentResponse client hook and processPaymentResult utility
+- d235050: Log the `EXTENSION-RESPONSES` header from facilitator verify/settle responses. The HTTP facilitator client decodes the header and logs allowlisted fields (`status`, `rejectedReason`, `reason`, `code`) without attaching data to `VerifyResponse` or `SettleResponse`.
+
+## 2.11.0
+
+### Minor Changes
+
+- a051f48: Enables `ResourceServerExtension` to register resource-server verify/settle hooks, and enforces extension mutation policy: `enrichPaymentRequiredResponse` may only change `payTo` / `amount` / `asset` when those baseline values are vacant; `scheme` / `network` / `maxTimeoutSeconds` and baseline `extra` entries are immutable. `enrichSettlementResponse` may not rewrite facilitator core fields (`success`, `transaction`, `network`, etc.). Lifecycle hook contexts are typed as read-only for core protocol fields.
+- dc04108: Fixed a bug affecting USD prices with 7+ decimal places of precision (e.g. `$0.0000001` or smaller).
+
 ## 2.10.0
 
 ### Minor Changes

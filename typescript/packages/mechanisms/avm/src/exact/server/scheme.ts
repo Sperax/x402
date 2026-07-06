@@ -12,8 +12,8 @@ import type {
   SchemeNetworkServer,
   MoneyParser,
 } from "@x402/core/types";
+import { convertToTokenAmount, numberToDecimalString, parseMoneyString } from "@x402/core/utils";
 import { USDC_CONFIG, USDC_DECIMALS } from "../../constants";
-import { convertToTokenAmount } from "../../utils";
 
 /**
  * AVM server implementation for the Exact payment scheme.
@@ -149,15 +149,7 @@ export class ExactAvmScheme implements SchemeNetworkServer {
       return money;
     }
 
-    // Remove $ sign and whitespace, then parse
-    const cleanMoney = money.replace(/^\$/, "").trim();
-    const amount = parseFloat(cleanMoney);
-
-    if (isNaN(amount)) {
-      throw new Error(`Invalid money format: ${money}`);
-    }
-
-    return amount;
+    return parseMoneyString(money);
   }
 
   /**
@@ -170,7 +162,7 @@ export class ExactAvmScheme implements SchemeNetworkServer {
    */
   private defaultMoneyConversion(amount: number, network: Network): AssetAmount {
     const assetInfo = this.getDefaultAsset(network);
-    const tokenAmount = convertToTokenAmount(amount.toString(), assetInfo.decimals);
+    const tokenAmount = convertToTokenAmount(numberToDecimalString(amount), assetInfo.decimals);
 
     return {
       amount: tokenAmount,

@@ -26,17 +26,21 @@ import {
   createSIWxSettleHook,
   createSIWxRequestHook,
   createSIWxClientHook,
-  siwxResourceServerExtension,
+  createSIWxClientExtension,
+  createSIWxResourceServerExtension,
+  SIGN_IN_WITH_X,
   type SIWxHookEvent,
   type SolanaSigner,
   type EVMSigner,
   type EVMMessageVerifier,
 } from "../src/sign-in-with-x/index";
 import { safeBase64Encode } from "@x402/core/utils";
+import { x402ResourceServer } from "@x402/core/server";
 import { privateKeyToAccount, generatePrivateKey } from "viem/accounts";
 import nacl from "tweetnacl";
 import { randomBytes } from "crypto";
 import type { SIWxExtension } from "../src/sign-in-with-x/index";
+import type { PaymentRequired, PaymentPayload } from "@x402/core/types";
 
 /**
  * Test-only helper: builds a complete SIWX extension with nonce/issuedAt.
@@ -1522,19 +1526,82 @@ describe("SIWX Hooks", () => {
       expect(parsed.address.toLowerCase()).toBe(account.address.toLowerCase());
     });
   });
+
+  describe("createSIWxClientExtension", () => {
+    it("should return undefined when no signer supports the challenge", async () => {
+      const account = privateKeyToAccount(generatePrivateKey());
+      const extension = createSIWxClientExtension({ signers: [account] });
+      const httpHook = extension.transportHooks?.http as {
+        onPaymentRequired: (
+          declaration: unknown,
+          context: { paymentRequired: { extensions?: Record<string, unknown> } },
+        ) => Promise<{ headers: Record<string, string> } | void>;
+      };
+
+      const result = await httpHook.onPaymentRequired(
+        {},
+        {
+          paymentRequired: {
+            extensions: createTestChallenge({
+              domain: "example.com",
+              resourceUri: "http://example.com/resource",
+              network: SOLANA_MAINNET,
+            }),
+          },
+        },
+      );
+
+      expect(result).toBeUndefined();
+    });
+
+    it("should skip incompatible signers until one matches the declared chains", async () => {
+      const account = privateKeyToAccount(generatePrivateKey());
+      const keypair = nacl.sign.keyPair();
+      const solanaSigner: SolanaSigner = {
+        signMessage: async (msg: Uint8Array) => nacl.sign.detached(msg, keypair.secretKey),
+        publicKey: encodeBase58(keypair.publicKey),
+      };
+      const extension = createSIWxClientExtension({ signers: [solanaSigner, account] });
+      const httpHook = extension.transportHooks?.http as {
+        onPaymentRequired: (
+          declaration: unknown,
+          context: { paymentRequired: { extensions?: Record<string, unknown> } },
+        ) => Promise<{ headers: Record<string, string> } | void>;
+      };
+
+      const result = await httpHook.onPaymentRequired(
+        {},
+        {
+          paymentRequired: {
+            extensions: createTestChallenge({
+              domain: "example.com",
+              resourceUri: "http://example.com/resource",
+              network: "eip155:1",
+            }),
+          },
+        },
+      );
+
+      expect(result).toHaveProperty("headers");
+      const parsed = parseSIWxHeader(result!.headers["sign-in-with-x"]);
+      expect(parsed.address.toLowerCase()).toBe(account.address.toLowerCase());
+    });
+  });
 });
 
-describe("siwxResourceServerExtension", () => {
+describe("createSIWxResourceServerExtension", () => {
   const mockContext = (networks: string[], url = "https://api.example.com/resource") => ({
     requirements: networks.map(network => ({ network, scheme: "exact" })),
     resourceInfo: { url },
   });
 
   it("derives single network from requirements", async () => {
+    const storage = new InMemorySIWxStorage();
+    const extension = createSIWxResourceServerExtension({ storage });
     const declaration = declareSIWxExtension({});
     const ext = declaration["sign-in-with-x"];
 
-    const result = (await siwxResourceServerExtension.enrichPaymentRequiredResponse!(
+    const result = (await extension.enrichPaymentRequiredResponse!(
       ext,
       mockContext(["eip155:8453"]),
     )) as SIWxExtension;
@@ -1544,10 +1611,12 @@ describe("siwxResourceServerExtension", () => {
   });
 
   it("derives multiple networks from requirements (EVM + Solana)", async () => {
+    const storage = new InMemorySIWxStorage();
+    const extension = createSIWxResourceServerExtension({ storage });
     const declaration = declareSIWxExtension({});
     const ext = declaration["sign-in-with-x"];
 
-    const result = (await siwxResourceServerExtension.enrichPaymentRequiredResponse!(
+    const result = (await extension.enrichPaymentRequiredResponse!(
       ext,
       mockContext(["eip155:8453", SOLANA_MAINNET]),
     )) as SIWxExtension;
@@ -1558,10 +1627,12 @@ describe("siwxResourceServerExtension", () => {
   });
 
   it("generates fresh time-based fields", async () => {
+    const storage = new InMemorySIWxStorage();
+    const extension = createSIWxResourceServerExtension({ storage });
     const declaration = declareSIWxExtension({ expirationSeconds: 300 });
     const ext = declaration["sign-in-with-x"];
 
-    const result = (await siwxResourceServerExtension.enrichPaymentRequiredResponse!(
+    const result = (await extension.enrichPaymentRequiredResponse!(
       ext,
       mockContext(["eip155:8453"]),
     )) as SIWxExtension;
@@ -1572,10 +1643,12 @@ describe("siwxResourceServerExtension", () => {
   });
 
   it("derives domain and uri from request context", async () => {
+    const storage = new InMemorySIWxStorage();
+    const extension = createSIWxResourceServerExtension({ storage });
     const declaration = declareSIWxExtension({});
     const ext = declaration["sign-in-with-x"];
 
-    const result = (await siwxResourceServerExtension.enrichPaymentRequiredResponse!(
+    const result = (await extension.enrichPaymentRequiredResponse!(
       ext,
       mockContext(["eip155:8453"], "https://api.example.com/data"),
     )) as SIWxExtension;
@@ -1584,22 +1657,176 @@ describe("siwxResourceServerExtension", () => {
     expect(result.info.uri).toBe("https://api.example.com/data");
   });
 
-  it("should generate time-based fields from static declaration", async () => {
+  it("declares nonce, issuedAt, and expirationTime as dynamic info fields", () => {
+    const storage = new InMemorySIWxStorage();
+    const extension = createSIWxResourceServerExtension({ storage });
+
+    expect(extension.dynamicInfoFields).toEqual(["nonce", "issuedAt", "expirationTime"]);
+  });
+
+  it("validates a client echo against a regenerated challenge with a fresh nonce", async () => {
+    const storage = new InMemorySIWxStorage();
+    const extension = createSIWxResourceServerExtension({ storage });
     const declaration = declareSIWxExtension({ expirationSeconds: 300 });
     const ext = declaration["sign-in-with-x"];
 
-    // Static declaration has no nonce/issuedAt
-    expect(ext.info.nonce).toBeUndefined();
-    expect(ext.info.issuedAt).toBeUndefined();
-
-    const result = (await siwxResourceServerExtension.enrichPaymentRequiredResponse!(
+    const challengeA = (await extension.enrichPaymentRequiredResponse!(
+      ext,
+      mockContext(["eip155:8453"]),
+    )) as SIWxExtension;
+    const challengeB = (await extension.enrichPaymentRequiredResponse!(
       ext,
       mockContext(["eip155:8453"]),
     )) as SIWxExtension;
 
-    // Enrichment generates fresh time-based fields
+    expect(challengeA.info.nonce).not.toBe(challengeB.info.nonce);
+
+    const server = new x402ResourceServer().registerExtension(extension);
+    const paymentRequired = {
+      x402Version: 2 as const,
+      accepts: [],
+      extensions: { [SIGN_IN_WITH_X]: challengeB },
+    };
+    const paymentPayload = {
+      x402Version: 2 as const,
+      scheme: "exact",
+      network: "eip155:8453",
+      payload: {},
+      extensions: { [SIGN_IN_WITH_X]: challengeA },
+    };
+
+    expect(
+      server.validateExtensions(
+        paymentRequired as unknown as PaymentRequired,
+        paymentPayload as unknown as PaymentPayload,
+      ),
+    ).toEqual({ valid: true });
+  });
+
+  it("should generate time-based fields from static declaration", async () => {
+    const storage = new InMemorySIWxStorage();
+    const extension = createSIWxResourceServerExtension({ storage });
+    const declaration = declareSIWxExtension({ expirationSeconds: 300 });
+    const ext = declaration["sign-in-with-x"];
+
+    expect(ext.info.nonce).toBeUndefined();
+    expect(ext.info.issuedAt).toBeUndefined();
+
+    const result = (await extension.enrichPaymentRequiredResponse!(
+      ext,
+      mockContext(["eip155:8453"]),
+    )) as SIWxExtension;
+
     expect(result.info.nonce).toHaveLength(32);
     expect(result.info.issuedAt).toBeDefined();
     expect(result.info.expirationTime).toBeDefined();
+  });
+
+  it("records successful settlements through the extension hook", async () => {
+    const storage = new InMemorySIWxStorage();
+    const events: SIWxHookEvent[] = [];
+    const extension = createSIWxResourceServerExtension({
+      storage,
+      onEvent: event => events.push(event),
+    });
+
+    await extension.hooks!.onAfterSettle!(declareSIWxExtension(), {
+      paymentPayload: {
+        payload: { authorization: { from: "0xABC123" } },
+        resource: { url: "http://example.com/weather" },
+      },
+      requirements: { scheme: "exact", network: "eip155:8453", payTo: "0x0", amount: "1000" },
+      declaredExtensions: declareSIWxExtension(),
+      result: { success: true, payer: "0xABC123" },
+    });
+
+    expect(storage.hasPaid("/weather", "0xABC123")).toBe(true);
+    expect(events).toContainEqual({
+      type: "payment_recorded",
+      resource: "/weather",
+      address: "0xABC123",
+    });
+  });
+
+  it("does not record failed settlements through the extension hook", async () => {
+    const storage = new InMemorySIWxStorage();
+    const extension = createSIWxResourceServerExtension({ storage });
+
+    await extension.hooks!.onAfterSettle!(declareSIWxExtension(), {
+      paymentPayload: {
+        payload: { authorization: { from: "0xABC123" } },
+        resource: { url: "http://example.com/weather" },
+      },
+      requirements: { scheme: "exact", network: "eip155:8453", payTo: "0x0", amount: "1000" },
+      declaredExtensions: declareSIWxExtension(),
+      result: { success: false, payer: "0xABC123" },
+    });
+
+    expect(storage.hasPaid("/weather", "0xABC123")).toBe(false);
+  });
+
+  it("grants HTTP access through the extension transport hook", async () => {
+    const baseStorage = new InMemorySIWxStorage();
+    const usedNonces = new Set<string>();
+    const storage = {
+      hasPaid: (resource: string, address: string) => baseStorage.hasPaid(resource, address),
+      recordPayment: (resource: string, address: string) =>
+        baseStorage.recordPayment(resource, address),
+      hasUsedNonce: (nonce: string) => usedNonces.has(nonce),
+      recordNonce: (nonce: string) => {
+        usedNonces.add(nonce);
+      },
+    };
+    const events: SIWxHookEvent[] = [];
+    const account = privateKeyToAccount(generatePrivateKey());
+    const extension = createSIWxResourceServerExtension({
+      storage,
+      onEvent: event => events.push(event),
+    });
+    await storage.recordPayment("/resource", account.address);
+
+    const challenge = createTestChallenge({
+      domain: "example.com",
+      resourceUri: "http://example.com/resource",
+      network: "eip155:8453",
+    });
+    const siwxExtension = challenge["sign-in-with-x"];
+    const payload = await createSIWxPayload(
+      {
+        ...siwxExtension.info,
+        chainId: siwxExtension.supportedChains[0].chainId,
+        type: siwxExtension.supportedChains[0].type,
+      },
+      account,
+    );
+    const header = encodeSIWxHeader(payload);
+
+    const result = await extension.transportHooks!.http!.onProtectedRequest!(
+      siwxExtension,
+      {
+        adapter: {
+          getHeader: (name: string) =>
+            name === "sign-in-with-x" || name === "SIGN-IN-WITH-X" ? header : undefined,
+          getUrl: () => "http://example.com/resource",
+        },
+        path: "/resource",
+      },
+      {
+        accepts: {
+          scheme: "exact",
+          price: "$0.001",
+          network: "eip155:8453",
+          payTo: "0x0000000000000000000000000000000000000000",
+        },
+      },
+    );
+
+    expect(result).toEqual({ grantAccess: true });
+    expect(storage.hasUsedNonce(payload.nonce)).toBe(true);
+    expect(events).toContainEqual({
+      type: "access_granted",
+      resource: "/resource",
+      address: account.address,
+    });
   });
 });
