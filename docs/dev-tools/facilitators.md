@@ -35,6 +35,7 @@ If you are evaluating a mainnet EVM route, decide on your production facilitator
 | [PayAI Facilitator](https://facilitator.payai.network) | Production-grade multi-network facilitator supporting all tokens. No API keys required |
 | [Polygon Facilitator](https://docs.polygon.technology/payment-services/agentic-payments/x402/intro/) | Production-grade x402 facilitator for Polygon Mainnet and Amoy testnet |
 | [Solvador](https://solvador.com) | Multi-network facilitator with broad mainnet coverage across EVM plus Solana and NEAR, supporting multiple schemes and extensions |
+| [Sperax Facilitator](https://x402.sperax.io) | Gasless x402 v2 facilitator for Arbitrum One and Base, settling exact USDC via EIP-3009 and USDs via Permit2 with a gas-sponsored first approval ([capabilities](https://x402.sperax.io/supported)) |
 | [Sui Facilitator (UIG Studios)](https://github.com/DrVelvetFog/sui-x402-facilitator) | Non-custodial, zero-fee x402 facilitator for Sui mainnet and testnet with USDC support |
 | [T54 XRPL Facilitator](https://xrpl-x402.t54.ai) | Production-grade x402 facilitator for the XRP Ledger, covering mainnet and testnet with XRP and RLUSD support |
 | [X Pay](https://x-pay.llc/) | x402 v2 facilitator for exact USDC payments on Base mainnet via EIP-3009; merchant API key required for verification and settlement ([capabilities](https://facilitator-xpay.llc/supported)) |
